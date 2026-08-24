@@ -1,0 +1,35 @@
+name: Resource snapshot
+
+on:
+  schedule: [{ cron: '23 3 * * *' }]
+  workflow_dispatch:
+
+permissions: { contents: write }
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node scripts/build.mjs "$(date -u +%Y.%m.%d).${GITHUB_RUN_NUMBER}"
+      - name: Archive snapshot
+        run: zip -qr resource-pack.zip resource-pack
+      - name: Generate manifest
+        run: |
+          sha256sum resource-pack.zip > resource-pack.sha256
+          SIZE=$(stat -c%s resource-pack.zip)
+          HASH=$(cut -d' ' -f1 resource-pack.sha256)
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/resources-${GITHUB_RUN_NUMBER}/resource-pack.zip"
+          jq -n --arg url "$URL" --arg sha "$HASH" --argjson size "$SIZE" '{schema:1, archive_url:$url, archive_sha256:$sha, archive_size:$size}' > resource-manifest.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: resources-${{ github.run_number }}
+          name: Resource snapshot ${{ github.run_number }}
+          prerelease: false
+          make_latest: true
+          files: |
+            resource-pack.zip
+            resource-manifest.json
+            resource-pack.sha256
