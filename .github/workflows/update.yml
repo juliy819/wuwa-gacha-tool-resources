@@ -6,6 +6,10 @@ on:
 
 permissions: { contents: write }
 
+concurrency:
+  group: resource-snapshot
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -16,15 +20,47 @@ jobs:
       - id: snapshot
         name: Build and compare snapshot
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node scripts/build.mjs "$(date -u +%Y.%m.%d).${GITHUB_RUN_NUMBER}" | tee build-output.json
           CATALOG_SHA=$(node -e "const fs=require('fs'), crypto=require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync('resource-pack/catalog.json')).digest('hex'))")
           echo "catalog_sha256=${CATALOG_SHA}" >> "$GITHUB_OUTPUT"
 
-          CURRENT_MANIFEST_URL="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/resource-manifest.json"
-          CURRENT_SHA=$(curl --fail --silent --show-error "$CURRENT_MANIFEST_URL" | jq -r '.catalog_sha256 // empty' || true)
-          if [[ -n "$CURRENT_SHA" && "$CURRENT_SHA" == "$CATALOG_SHA" ]]; then
+          HTTP_STATUS=$(curl --silent --show-error \
+            --output latest-release.json \
+            --write-out '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest")
+
+          if [[ "$HTTP_STATUS" == '404' ]]; then
+            echo 'No existing release found; publishing the initial snapshot.'
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$HTTP_STATUS" != '200' ]]; then
+            echo "Failed to read the latest release (HTTP ${HTTP_STATUS}); refusing to publish." >&2
+            cat latest-release.json >&2
+            exit 1
+          fi
+
+          MANIFEST_ASSET_URL=$(jq -er \
+            '.assets[] | select(.name == "resource-manifest.json") | .url' \
+            latest-release.json | head -n 1)
+          curl --fail --location --silent --show-error \
+            -H 'Accept: application/octet-stream' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$MANIFEST_ASSET_URL" \
+            --output current-resource-manifest.json
+          CURRENT_SHA=$(jq -er \
+            '.catalog_sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' \
+            current-resource-manifest.json)
+
+          if [[ "$CURRENT_SHA" == "$CATALOG_SHA" ]]; then
             echo "No resource changes detected (catalog SHA-256: $CATALOG_SHA)."
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
