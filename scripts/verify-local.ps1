@@ -13,4 +13,11 @@ foreach ($entry in $catalog.icons.PSObject.Properties) {
   if ($entry.Value -ne "$($entry.Name).webp") { throw "unsafe icon path for $($entry.Name)" }
   if (-not (Test-Path -LiteralPath (Join-Path verify-unpacked\resource-pack\icons $entry.Value))) { throw "missing icon $($entry.Name)" }
 }
-Write-Output "verified resources=$($catalog.resources.Count) icons=$($icons.Count) archive=$((Get-Item resource-pack-local.zip).Length)"
+$portraits = @(Get-ChildItem verify-unpacked\resource-pack\portraits -File)
+if ($portraits.Count -lt 30) { throw 'portrait snapshot unexpectedly small' }
+if ($portraits.Count -ne @($catalog.portraits.PSObject.Properties).Count) { throw 'catalog and portrait file counts differ' }
+foreach ($entry in $catalog.portraits.PSObject.Properties) {
+  if ($entry.Value -ne "$($entry.Name).webp") { throw "unsafe portrait path for $($entry.Name)" }
+  if (-not (Test-Path -LiteralPath (Join-Path verify-unpacked\resource-pack\portraits $entry.Value))) { throw "missing portrait $($entry.Name)" }
+}
+Write-Output "verified resources=$($catalog.resources.Count) icons=$($icons.Count) portraits=$($portraits.Count) archive=$((Get-Item resource-pack-local.zip).Length)"

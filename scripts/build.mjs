@@ -7,21 +7,27 @@ const version = process.argv[2] || new Date().toISOString().slice(0, 10).replace
 const output = path.resolve('resource-pack');
 await rm(output, { recursive: true, force: true });
 await mkdir(path.join(output, 'icons'), { recursive: true });
+await mkdir(path.join(output, 'portraits'), { recursive: true });
 const json = async (url) => { const response = await fetch(url); if (!response.ok) throw new Error(`${response.status} ${url}`); return response.json(); };
 const sourceVersion = (await json(`${base}/manifest.json`)).ww.latest;
 const resources = [];
 const downloads = [];
 const icons = {};
+const portraits = {};
 const failures = [];
+const assetsHash = createHash('sha256');
 for (const [kind, entries] of [['role', await json(`${base}/ww/${sourceVersion}/character.json`)], ['weapon', await json(`${base}/ww/${sourceVersion}/weapon.json`)]]) {
   for (const [id, item] of Object.entries(entries)) {
     if (!/^\d+$/.test(id) || !item.zh || ![3, 4, 5].includes(item.rank)) continue;
     resources.push({ resource_id: Number(id), name: item.zh, quality_level: item.rank, resource_type: kind });
-    if (item.icon) downloads.push({ id, path: item.icon });
+    if (item.icon) downloads.push({ id, path: item.icon, directory: 'icons', mapping: icons });
     else failures.push({ id, reason: 'source catalog has no icon path' });
+    if (kind === 'role' && (item.portrait || item.background)) downloads.push({ id, path: item.portrait || item.background, directory: 'portraits', mapping: portraits });
+    else if (kind === 'role') failures.push({ id, reason: 'source catalog has no portrait path' });
   }
 }
 const iconPath = (value) => `${base}/assets/ww${value.replace('/Game/Aki/UI', '').split('.')[0]}.webp`;
+downloads.sort((left, right) => left.directory.localeCompare(right.directory) || Number(left.id) - Number(right.id));
 for (const item of downloads) {
   try {
     const response = await fetch(iconPath(item.path));
@@ -29,8 +35,10 @@ for (const item of downloads) {
     const bytes = Buffer.from(await response.arrayBuffer());
     if (bytes.length < 12 || bytes.length > 2 * 1024 * 1024) throw new Error(`invalid size ${bytes.length}`);
     if (bytes.subarray(0, 4).toString() !== 'RIFF' || bytes.subarray(8, 12).toString() !== 'WEBP') throw new Error('response is not WebP');
-    await writeFile(path.join(output, 'icons', `${item.id}.webp`), bytes);
-    icons[item.id] = `${item.id}.webp`;
+    assetsHash.update(`${item.directory}/${item.id}.webp\0`);
+    assetsHash.update(bytes);
+    await writeFile(path.join(output, item.directory, `${item.id}.webp`), bytes);
+    item.mapping[item.id] = `${item.id}.webp`;
   } catch (error) {
     failures.push({ id: item.id, reason: error instanceof Error ? error.message : String(error) });
   }
@@ -39,8 +47,9 @@ if (failures.length > 0) {
   console.error(JSON.stringify({ message: 'resource snapshot is incomplete', failures }, null, 2));
   throw new Error(`failed to build ${failures.length} resource icons`);
 }
-if (Object.keys(icons).length !== downloads.length) throw new Error('catalog icon count does not match downloaded files');
-const catalog = Buffer.from(JSON.stringify({ version: sourceVersion, resources, icons }, null, 2) + '\n');
+if (Object.keys(icons).length + Object.keys(portraits).length !== downloads.length) throw new Error('catalog asset count does not match downloaded files');
+const assetsSha256 = assetsHash.digest('hex');
+const catalog = Buffer.from(JSON.stringify({ version: sourceVersion, assets_sha256: assetsSha256, resources, icons, portraits }, null, 2) + '\n');
 await writeFile(path.join(output, 'catalog.json'), catalog);
 const archive = path.resolve(`resource-pack-${version}.zip`);
 if (process.env.CREATE_ARCHIVE === '1') {
@@ -48,4 +57,4 @@ if (process.env.CREATE_ARCHIVE === '1') {
   if (process.platform === 'win32') execFileSync('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path '${output}' -DestinationPath '${archive}' -Force`]);
   else execFileSync('zip', ['-qr', archive, 'resource-pack']);
 }
-console.log(JSON.stringify({ version, sourceVersion, resourceCount: resources.length, catalogSha256: createHash('sha256').update(catalog).digest('hex'), archive }, null, 2));
+console.log(JSON.stringify({ version, sourceVersion, resourceCount: resources.length, iconCount: Object.keys(icons).length, portraitCount: Object.keys(portraits).length, assetsSha256, catalogSha256: createHash('sha256').update(catalog).digest('hex'), archive }, null, 2));
