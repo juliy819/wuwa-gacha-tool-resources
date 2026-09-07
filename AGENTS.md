@@ -11,7 +11,7 @@
 - 构建资源压缩包、SHA-256 和 `resource-manifest.json`；
 - 定时检查内容变化，仅在资源真实变化时创建独立 GitHub Release。
 
-React/Tauri 界面、资源安装、缓存迁移和 nanoka 回退属于同级 `wuwa-gagha-tool` 主程序仓库；OCR 图像匹配属于同级 `wuwa-gacha-tool-ocr-runtime` 仓库。本仓库不实现消费端逻辑，也不与主程序或 OCR 组件共用 Release。
+React/Tauri 界面、资源安装、缓存迁移和 nanoka 回退属于同级 `wuwa-gacha-tool` 主程序仓库；OCR 图像匹配属于同级 `wuwa-gacha-tool-ocr-runtime` 仓库。本仓库不实现消费端逻辑，也不与主程序或 OCR 组件共用 Release。
 
 主程序和 OCR runtime 都消费本仓库产物。修改目录、字段、素材覆盖范围或 manifest 时，必须检查两个消费端的向后兼容性、失败回退和发布顺序。
 
