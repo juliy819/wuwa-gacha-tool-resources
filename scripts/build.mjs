@@ -21,9 +21,9 @@ for (const [kind, entries] of [['role', await json(`${base}/ww/${sourceVersion}/
     if (!/^\d+$/.test(id) || !item.zh || ![3, 4, 5].includes(item.rank)) continue;
     resources.push({ resource_id: Number(id), name: item.zh, quality_level: item.rank, resource_type: kind });
     if (item.icon) downloads.push({ id, path: item.icon, directory: 'icons', mapping: icons });
-    else failures.push({ id, reason: 'source catalog has no icon path' });
+    else failures.push({ id, directory: 'icons', reason: 'source catalog has no icon path' });
     if (kind === 'role' && (item.portrait || item.background)) downloads.push({ id, path: item.portrait || item.background, directory: 'portraits', mapping: portraits });
-    else if (kind === 'role') failures.push({ id, reason: 'source catalog has no portrait path' });
+    else if (kind === 'role') failures.push({ id, directory: 'portraits', reason: 'source catalog has no portrait path' });
   }
 }
 const iconPath = (value) => `${base}/assets/ww${value.replace('/Game/Aki/UI', '').split('.')[0]}.webp`;
@@ -35,21 +35,21 @@ for (const item of downloads) {
     const bytes = Buffer.from(await response.arrayBuffer());
     if (bytes.length < 12 || bytes.length > 2 * 1024 * 1024) throw new Error(`invalid size ${bytes.length}`);
     if (bytes.subarray(0, 4).toString() !== 'RIFF' || bytes.subarray(8, 12).toString() !== 'WEBP') throw new Error('response is not WebP');
+    const target = path.join(output, item.directory, `${item.id}.webp`);
+    await writeFile(target, bytes);
     assetsHash.update(`${item.directory}/${item.id}.webp\0`);
     assetsHash.update(bytes);
-    await writeFile(path.join(output, item.directory, `${item.id}.webp`), bytes);
     item.mapping[item.id] = `${item.id}.webp`;
   } catch (error) {
-    failures.push({ id: item.id, reason: error instanceof Error ? error.message : String(error) });
+    await rm(path.join(output, item.directory, `${item.id}.webp`), { force: true });
+    failures.push({ id: item.id, directory: item.directory, reason: error instanceof Error ? error.message : String(error) });
   }
 }
-if (failures.length > 0) {
-  console.error(JSON.stringify({ message: 'resource snapshot is incomplete', failures }, null, 2));
-  throw new Error(`failed to build ${failures.length} resource icons`);
-}
-if (Object.keys(icons).length + Object.keys(portraits).length !== downloads.length) throw new Error('catalog asset count does not match downloaded files');
+// Beta catalogs can arrive before every corresponding image. Publish the
+// directory and available assets, while recording missing files for audits.
+const missingAssets = failures.map(({ id, directory, reason }) => ({ id: Number(id), directory, reason }));
 const assetsSha256 = assetsHash.digest('hex');
-const catalog = Buffer.from(JSON.stringify({ version: sourceVersion, assets_sha256: assetsSha256, resources, icons, portraits }, null, 2) + '\n');
+const catalog = Buffer.from(JSON.stringify({ version: sourceVersion, assets_sha256: assetsSha256, resources, icons, portraits, missing_assets: missingAssets }, null, 2) + '\n');
 await writeFile(path.join(output, 'catalog.json'), catalog);
 const archive = path.resolve(`resource-pack-${version}.zip`);
 if (process.env.CREATE_ARCHIVE === '1') {
@@ -57,4 +57,4 @@ if (process.env.CREATE_ARCHIVE === '1') {
   if (process.platform === 'win32') execFileSync('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path '${output}' -DestinationPath '${archive}' -Force`]);
   else execFileSync('zip', ['-qr', archive, 'resource-pack']);
 }
-console.log(JSON.stringify({ version, sourceVersion, resourceCount: resources.length, iconCount: Object.keys(icons).length, portraitCount: Object.keys(portraits).length, assetsSha256, catalogSha256: createHash('sha256').update(catalog).digest('hex'), archive }, null, 2));
+console.log(JSON.stringify({ version, sourceVersion, resourceCount: resources.length, iconCount: Object.keys(icons).length, portraitCount: Object.keys(portraits).length, missingAssetCount: missingAssets.length, assetsSha256, catalogSha256: createHash('sha256').update(catalog).digest('hex'), archive }, null, 2));

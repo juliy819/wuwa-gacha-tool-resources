@@ -20,4 +20,8 @@ foreach ($entry in $catalog.portraits.PSObject.Properties) {
   if ($entry.Value -ne "$($entry.Name).webp") { throw "unsafe portrait path for $($entry.Name)" }
   if (-not (Test-Path -LiteralPath (Join-Path verify-unpacked\resource-pack\portraits $entry.Value))) { throw "missing portrait $($entry.Name)" }
 }
-Write-Output "verified resources=$($catalog.resources.Count) icons=$($icons.Count) portraits=$($portraits.Count) archive=$((Get-Item resource-pack-local.zip).Length)"
+$missing = @($catalog.missing_assets)
+foreach ($entry in $missing) {
+  if ($entry.id -notmatch '^[0-9]+$' -or $entry.directory -notin @('icons', 'portraits') -or [string]::IsNullOrWhiteSpace($entry.reason)) { throw 'invalid missing asset entry' }
+}
+Write-Output "verified resources=$($catalog.resources.Count) icons=$($icons.Count) portraits=$($portraits.Count) missing=$($missing.Count) archive=$((Get-Item resource-pack-local.zip).Length)"
