@@ -27,8 +27,8 @@ React/Tauri 界面、资源安装、缓存迁移和 nanoka 回退属于同级 `w
 
 资源构建必须 fail closed：只有完整、结构有效且可验证的快照才能进入压缩和发布阶段。
 
-- `catalog.json` 的 `resources` 包含约定范围内的全部角色和武器；`icons` 覆盖每条资源，`portraits` 覆盖每个要求立绘的角色。
-- 上游条目缺少素材路径、HTTP 非成功、响应不是 WebP、文件大小异常、写入失败或数量不一致时，必须让整个构建失败，不能记录警告后发布部分资源。
+- `catalog.json` 的 `resources` 包含约定范围内的全部角色和武器；`icons` 和 `portraits` 声明成功下载的素材，beta 目录中尚未提供的图片写入 `missing_assets`。
+- 上游条目缺少素材路径或素材明确返回 HTTP 404 时可以发布部分素材，并在 `missing_assets` 中记录资源 ID、目录和原因。其他 HTTP 错误、网络异常、响应不是 WebP、文件大小异常或写入失败必须让整个构建失败。
 - 文件名和 catalog 映射使用资源 ID 加 `.webp`，不得接受绝对路径、父目录、额外层级或来自上游的原始文件名。
 - 不能只依赖“数量大于某个阈值”判断完整。还要逐项核对 catalog 映射、实际文件、资源 ID、类型、星级、格式和重复项。
 - 生成顺序必须确定：同一份上游内容多次构建应得到相同的 catalog 内容和内容哈希。不要用对象遍历偶然顺序、下载完成顺序或压缩时间戳表达资源身份。
@@ -40,7 +40,7 @@ React/Tauri 界面、资源安装、缓存迁移和 nanoka 回退属于同级 `w
 
 当前资源包契约包括：
 
-- `resource-pack/catalog.json`：上游版本、`assets_sha256`、`resources`、`icons`、`portraits`；
+- `resource-pack/catalog.json`：上游版本、`assets_sha256`、`resources`、`icons`、`portraits`、`missing_assets`；
 - `resource-pack/icons/<resource_id>.webp`：角色和武器图标；
 - `resource-pack/portraits/<resource_id>.webp`：角色立绘；
 - `resource-manifest.json`：`schema`、`archive_url`、`archive_sha256`、`archive_size`、`catalog_sha256`。

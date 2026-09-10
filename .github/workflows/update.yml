@@ -24,9 +24,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          node scripts/build.mjs "$(date -u +%Y.%m.%d).${GITHUB_RUN_NUMBER}" | tee build-output.json
+          RELEASE_DATE=$(date -u +%Y.%m.%d)
+          node scripts/build.mjs "$RELEASE_DATE" | tee build-output.json
           CATALOG_SHA=$(node -e "const fs=require('fs'), crypto=require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync('resource-pack/catalog.json')).digest('hex'))")
+          RELEASE_TAG="resources-${RELEASE_DATE}-${CATALOG_SHA:0:8}"
           echo "catalog_sha256=${CATALOG_SHA}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
           HTTP_STATUS=$(curl --silent --show-error \
             --output latest-release.json \
@@ -79,14 +82,15 @@ jobs:
           sha256sum resource-pack.zip > resource-pack.sha256
           SIZE=$(stat -c%s resource-pack.zip)
           HASH=$(cut -d' ' -f1 resource-pack.sha256)
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/resources-${GITHUB_RUN_NUMBER}/resource-pack.zip"
+          RELEASE_TAG='${{ steps.snapshot.outputs.release_tag }}'
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/resource-pack.zip"
           CATALOG_SHA='${{ steps.snapshot.outputs.catalog_sha256 }}'
           jq -n --arg url "$URL" --arg sha "$HASH" --arg catalog_sha "$CATALOG_SHA" --argjson size "$SIZE" '{schema:1, archive_url:$url, archive_sha256:$sha, archive_size:$size, catalog_sha256:$catalog_sha}' > resource-manifest.json
       - uses: softprops/action-gh-release@v2
         if: steps.snapshot.outputs.changed == 'true'
         with:
-          tag_name: resources-${{ github.run_number }}
-          name: Resource snapshot ${{ github.run_number }}
+          tag_name: ${{ steps.snapshot.outputs.release_tag }}
+          name: Resource snapshot ${{ steps.snapshot.outputs.release_tag }}
           prerelease: false
           make_latest: true
           files: |
