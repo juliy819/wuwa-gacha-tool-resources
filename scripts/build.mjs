@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { resolveSignatureWeapons } from './signature-weapons.mjs';
 
 const base = 'https://static.nanoka.cc';
 const version = process.argv[2] || new Date().toISOString().slice(0, 10).replaceAll('-', '.');
@@ -10,6 +11,21 @@ await mkdir(path.join(output, 'icons'), { recursive: true });
 await mkdir(path.join(output, 'portraits'), { recursive: true });
 const json = async (url) => { const response = await fetch(url); if (!response.ok) throw new Error(`${response.status} ${url}`); return response.json(); };
 const sourceVersion = (await json(`${base}/manifest.json`)).ww.latest;
+const signatureWeapons = JSON.parse(await readFile(new URL('../data/signature-weapons.json', import.meta.url), 'utf8'));
+const characters = await json(`${base}/ww/${sourceVersion}/character.json`);
+const weapons = await json(`${base}/ww/${sourceVersion}/weapon.json`);
+const signatureWeaponByRoleId = await resolveSignatureWeapons({
+  characters,
+  weapons,
+  manualPairs: signatureWeapons,
+  loadDetail: async (roleId) => {
+    const response = await fetch(`${base}/ww/${sourceVersion}/zh/character/${roleId}.json`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error(`character detail HTTP ${response.status}`);
+    return response.json();
+  },
+});
 const resources = [];
 const downloads = [];
 const icons = {};
@@ -17,10 +33,12 @@ const portraits = {};
 const missingAssets = [];
 const fatalFailures = [];
 const assetsHash = createHash('sha256');
-for (const [kind, entries] of [['role', await json(`${base}/ww/${sourceVersion}/character.json`)], ['weapon', await json(`${base}/ww/${sourceVersion}/weapon.json`)]]) {
+for (const [kind, entries] of [['role', characters], ['weapon', weapons]]) {
   for (const [id, item] of Object.entries(entries)) {
     if (!/^\d+$/.test(id) || !item.zh || ![3, 4, 5].includes(item.rank)) continue;
-    resources.push({ resource_id: Number(id), name: item.zh, quality_level: item.rank, resource_type: kind });
+    const resource = { resource_id: Number(id), name: item.zh, quality_level: item.rank, resource_type: kind };
+    if (kind === 'role' && signatureWeaponByRoleId[id]) resource.signature_weapon_id = signatureWeaponByRoleId[id];
+    resources.push(resource);
     if (item.icon) downloads.push({ id, path: item.icon, directory: 'icons', mapping: icons });
     else missingAssets.push({ id: Number(id), directory: 'icons', reason: 'source catalog has no icon path' });
     if (kind === 'role' && (item.portrait || item.background)) downloads.push({ id, path: item.portrait || item.background, directory: 'portraits', mapping: portraits });
