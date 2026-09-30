@@ -26,6 +26,15 @@ const signatureWeaponByRoleId = await resolveSignatureWeapons({
     return response.json();
   },
 });
+const releaseOrderEntries = JSON.parse(await readFile(new URL('../data/role-release-order.json', import.meta.url), 'utf8'));
+const roleReleaseOrder = new Map();
+for (const [index, entry] of releaseOrderEntries.entries()) {
+  if (!Number.isSafeInteger(entry.role_id) || characters[entry.role_id]?.zh !== entry.role_name
+    || roleReleaseOrder.has(entry.role_id)) {
+    throw new Error(`invalid role release order: ${entry.role_id} (${entry.role_name})`);
+  }
+  roleReleaseOrder.set(entry.role_id, index);
+}
 const resources = [];
 const downloads = [];
 const icons = {};
@@ -37,7 +46,10 @@ for (const [kind, entries] of [['role', characters], ['weapon', weapons]]) {
   for (const [id, item] of Object.entries(entries)) {
     if (!/^\d+$/.test(id) || !item.zh || ![3, 4, 5].includes(item.rank)) continue;
     const resource = { resource_id: Number(id), name: item.zh, quality_level: item.rank, resource_type: kind };
-    if (kind === 'role' && signatureWeaponByRoleId[id]) resource.signature_weapon_id = signatureWeaponByRoleId[id];
+    if (kind === 'role' && signatureWeaponByRoleId[id]) {
+      resource.signature_weapon_id = signatureWeaponByRoleId[id];
+      resource.release_order = roleReleaseOrder.get(Number(id));
+    }
     resources.push(resource);
     if (item.icon) downloads.push({ id, path: item.icon, directory: 'icons', mapping: icons });
     else missingAssets.push({ id: Number(id), directory: 'icons', reason: 'source catalog has no icon path' });
